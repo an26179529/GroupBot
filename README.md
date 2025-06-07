@@ -153,11 +153,7 @@ simple-group-order-bot
 - 資料庫 $0月 (內建 PostgreSQL)
 - LINE Bot $0月 (免費額度內)
 
-## 聯繫方式
 
-- 開發者 [你的名字]
-- GitHub httpsgithub.comusername
-- Email your.email@example.com
 
 ---
 
