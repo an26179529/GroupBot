@@ -1,4 +1,5 @@
 from flask import Flask, request, abort
+from database import init_db, insert_default_restaurants
 from dotenv import load_dotenv
 import os
 import traceback
@@ -18,6 +19,10 @@ from linebot.v3.webhooks import (
     MessageEvent,
     TextMessageContent
 )
+
+if not os.path.exists("group_order.db"):
+    init_db()
+    insert_default_restaurants()
 
 # 讀取 .env 檔案
 load_dotenv()
