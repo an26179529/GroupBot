@@ -8,17 +8,9 @@ import sqlite3
 
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    ReplyMessageRequest,
-    TextMessage
-)
-from linebot.v3.webhooks import (
-    MessageEvent,
-    TextMessageContent
-)
+from linebot.v3.messaging.models import QuickReply, QuickReplyItem, MessageAction
+from linebot.v3.messaging import Configuration,ApiClient,MessagingApi,ReplyMessageRequest,TextMessage
+from linebot.v3.webhooks import MessageEvent,TextMessageContent
 
 if not os.path.exists("group_order.db"):
     init_db()
@@ -57,6 +49,42 @@ def get_restaurant_list():
         reply += f"{idx}. {name}\n"
     return reply.strip()
 
+def get_restaurant_quickreply():
+    conn = sqlite3.connect("group_order.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM Restaurant WHERE active = 1")
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return None
+
+    items = []
+    for (name,) in rows:
+        items.append(
+            QuickReplyItem(action=MessageAction(label=name, text=f"[選擇餐廳] {name}"))
+        )
+
+    return QuickReply(items=items)
+
+def get_menu_by_name(name):
+    conn = sqlite3.connect("group_order.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT menu FROM Restaurant WHERE name = ?", (name,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return "查無此餐廳"
+
+    menu_dict = json.loads(row[0])
+    menu_text = f"📋「{name}」菜單：\n"
+    for item, price in menu_dict.items():
+        menu_text += f"- {item}: {price} 元\n"
+    return menu_text.strip()
+
+
+
 
 
 # Render/Vercel 健康檢查用
@@ -91,9 +119,20 @@ def callback():
 def handle_message(event):
     user_text = event.message.text.strip()
 
-    # 新增處理指令：/restaurants
-    if user_text in ["/restaurants", "查餐廳"]:
-        reply_text = get_restaurant_list()
+    reply_text = ""
+    quick_reply = None
+
+    # 1. 使用者輸入 /order → 顯示餐廳選單
+    if user_text == "/order":
+        quick_reply = get_restaurant_quickreply()
+        reply_text = "請選擇一間餐廳："
+
+    # 2. 使用者選擇餐廳（QuickReply 回傳訊息格式為：[選擇餐廳] 餐廳名稱）
+    elif user_text.startswith("[選擇餐廳]"):
+        selected_name = user_text.replace("[選擇餐廳]", "").strip()
+        reply_text = get_menu_by_name(selected_name)
+
+    # 3. 其他情況：原樣回覆
     else:
         reply_text = f"你說的是：{user_text}"
 
@@ -102,12 +141,13 @@ def handle_message(event):
             MessagingApi(api_client).reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text=reply_text)]
+                    messages=[TextMessage(text=reply_text, quick_reply=quick_reply)]
                 )
             )
     except Exception as e:
         print("❌ 回覆訊息錯誤：", e)
         traceback.print_exc()
+
 
 
 
