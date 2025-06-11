@@ -2,6 +2,8 @@ from flask import Flask, request, abort
 from dotenv import load_dotenv
 import os
 import traceback
+import sqlite3
+
 
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
@@ -35,6 +37,22 @@ print("CHANNEL_SECRET =", CHANNEL_SECRET)
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 line_handler = WebhookHandler(CHANNEL_SECRET)
 
+def get_restaurant_list():
+    conn = sqlite3.connect("group_order.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM Restaurant WHERE active = 1")
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return "目前沒有可用的餐廳喔～"
+
+    reply = "目前可選餐廳：\n"
+    for idx, (id, name) in enumerate(rows, start=1):
+        reply += f"{idx}. {name}\n"
+    return reply.strip()
+
+
 
 # Render/Vercel 健康檢查用
 @app.route("/", methods=["GET"])
@@ -66,21 +84,26 @@ def callback():
 # 接收使用者文字訊息的事件處理器
 @line_handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
+    user_text = event.message.text.strip()
+
+    # 新增處理指令：/restaurants
+    if user_text in ["/restaurants", "查餐廳"]:
+        reply_text = get_restaurant_list()
+    else:
+        reply_text = f"你說的是：{user_text}"
+
     try:
-        print("✅ 收到文字訊息：", event.message.text)
         with ApiClient(configuration) as api_client:
-            line_bot_api = MessagingApi(api_client)
-            line_bot_api.reply_message(
+            MessagingApi(api_client).reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[
-                        TextMessage(text=f"你說的是：{event.message.text}")
-                    ]
+                    messages=[TextMessage(text=reply_text)]
                 )
             )
     except Exception as e:
-        print("❌ 回覆訊息失敗：", e)
+        print("❌ 回覆訊息錯誤：", e)
         traceback.print_exc()
+
 
 
 if __name__ == "__main__":
