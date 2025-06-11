@@ -143,9 +143,23 @@ def handle_message(event):
 
     elif user_text.startswith("/join"):
         group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
-
-    if group_id not in group_orders or not group_orders[group_id]["restaurant"]:
-        reply_text = "⚠️ 請先用 /order 選餐廳"
+    
+        if group_id not in group_orders or not group_orders[group_id]["restaurant"]:
+            reply_text = "⚠️ 請先用 /order 選餐廳"
+        else:
+            try:
+                parts = user_text.split()
+                item = parts[1]
+                qty = int(parts[2])
+                user_id = event.source.user_id
+                group_orders[group_id]["orders"].append({
+                    "user": user_id,
+                    "item": item,
+                    "qty": qty
+                })
+                reply_text = f"✅ 已加入：{item} x{qty}"
+            except:
+                reply_text = "請輸入正確格式，例如：/join 雞腿飯 1"
 
     elif user_text == "/list":
         group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
@@ -174,21 +188,6 @@ def handle_message(event):
                 for item, qty in summary.items():
                     reply_text += f"- {item}: {qty} 份\n"
             del group_orders[group_id]
-
-    else:
-        try:
-            parts = user_text.split()
-            item = parts[1]
-            qty = int(parts[2])
-            user_id = event.source.user_id
-            group_orders[group_id]["orders"].append({
-                "user": user_id,
-                "item": item,
-                "qty": qty
-            })
-            reply_text = f"✅ 已加入：{item} x{qty}"
-        except:
-            reply_text = "請輸入正確格式，例如：/join 雞腿飯 1"
 
     try:
         with ApiClient(configuration) as api_client:
