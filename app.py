@@ -19,21 +19,20 @@ if not os.path.exists("group_order.db"):
 # 讀取 .env 檔案
 load_dotenv()
 
-# 建立 Flask 應用
+group_orders = {}
+
 app = Flask(__name__)
 
-# 從環境變數讀取 Token 與 Secret
+# 從env讀取 Token 與 Secret
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
 
-# 檢查是否讀取成功（除錯用）
-print("CHANNEL_ACCESS_TOKEN =", CHANNEL_ACCESS_TOKEN)
-print("CHANNEL_SECRET =", CHANNEL_SECRET)
-
-# 建立 LINE SDK 配置與處理器
+# 建立 LINE SDK 與處理器
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 line_handler = WebhookHandler(CHANNEL_SECRET)
 
+
+# 查看目前餐廳
 def get_restaurant_list():
     conn = sqlite3.connect("group_order.db")
     cursor = conn.cursor()
@@ -49,6 +48,7 @@ def get_restaurant_list():
         reply += f"{idx}. {name}\n"
     return reply.strip()
 
+# 建立餐廳選單
 def get_restaurant_quickreply():
     conn = sqlite3.connect("group_order.db")
     cursor = conn.cursor()
@@ -67,6 +67,7 @@ def get_restaurant_quickreply():
 
     return QuickReply(items=items)
 
+# 根據餐廳提供菜單
 def get_menu_by_name(name):
     conn = sqlite3.connect("group_order.db")
     cursor = conn.cursor()
@@ -82,9 +83,6 @@ def get_menu_by_name(name):
     for item, price in menu_dict.items():
         menu_text += f"- {item}: {price} 元\n"
     return menu_text.strip()
-
-
-
 
 
 # Render/Vercel 健康檢查用
@@ -114,7 +112,7 @@ def callback():
     return 'OK'
 
 
-# 接收使用者文字訊息的事件處理器
+# 根據使用者輸入回復訊息
 @line_handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     user_text = event.message.text.strip()
@@ -124,17 +122,73 @@ def handle_message(event):
 
     # 1. 使用者輸入 /order → 顯示餐廳選單
     if user_text == "/order":
-        quick_reply = get_restaurant_quickreply()
-        reply_text = "請選擇一間餐廳："
+        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+        if group_id in group_orders:
+            reply_text = "⚠️ 已經有一筆訂單進行中，可以用 /done 結單或 /list 查詢"
+        else:
+            quick_reply = get_restaurant_quickreply()
+            reply_text = "請選擇一間餐廳："
+            group_orders[group_id] = {"restaurant": None, "orders": []}
 
     # 2. 使用者選擇餐廳（QuickReply 回傳訊息格式為：[選擇餐廳] 餐廳名稱）
     elif user_text.startswith("[選擇餐廳]"):
+        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
         selected_name = user_text.replace("[選擇餐廳]", "").strip()
-        reply_text = get_menu_by_name(selected_name)
 
-    # 3. 其他情況：原樣回覆
+        if group_id not in group_orders:
+            reply_text = "⚠️ 請先輸入 /order 發起訂單"
+        else:
+            group_orders[group_id]["restaurant"] = selected_name
+            reply_text = f"✅ 餐廳「{selected_name}」選擇完成！大家可以用 `/join 餐點 數量` 加入訂單囉！"
+
+    elif user_text.startswith("/join"):
+        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+
+    if group_id not in group_orders or not group_orders[group_id]["restaurant"]:
+        reply_text = "⚠️ 請先用 /order 選餐廳"
+
+    elif user_text == "/list":
+        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+        if group_id not in group_orders or not group_orders[group_id]["orders"]:
+            reply_text = "目前沒有訂單資料"
+        else:
+            reply_text = f"📦 訂單明細（{group_orders[group_id]['restaurant']}）：\n"
+            for o in group_orders[group_id]["orders"]:
+                reply_text += f"- {o['user']}：{o['item']} x{o['qty']}\n"
+
+    elif user_text == "/done":
+        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+        if group_id not in group_orders:
+            reply_text = "目前沒有進行中的訂單"
+        else:
+            orders = group_orders[group_id]["orders"]
+            if not orders:
+                reply_text = "還沒有人點餐喔！"
+            else:
+                summary = {}
+                for o in orders:
+                    key = o["item"]
+                    summary[key] = summary.get(key, 0) + o["qty"]
+
+                reply_text = f"✅ 訂單結束！{group_orders[group_id]['restaurant']} 統計如下：\n"
+                for item, qty in summary.items():
+                    reply_text += f"- {item}: {qty} 份\n"
+            del group_orders[group_id]
+
     else:
-        reply_text = f"你說的是：{user_text}"
+        try:
+            parts = user_text.split()
+            item = parts[1]
+            qty = int(parts[2])
+            user_id = event.source.user_id
+            group_orders[group_id]["orders"].append({
+                "user": user_id,
+                "item": item,
+                "qty": qty
+            })
+            reply_text = f"✅ 已加入：{item} x{qty}"
+        except:
+            reply_text = "請輸入正確格式，例如：/join 雞腿飯 1"
 
     try:
         with ApiClient(configuration) as api_client:
@@ -147,8 +201,6 @@ def handle_message(event):
     except Exception as e:
         print("❌ 回覆訊息錯誤：", e)
         traceback.print_exc()
-
-
 
 
 if __name__ == "__main__":
