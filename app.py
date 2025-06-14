@@ -114,6 +114,27 @@ def callback():
 
 # 根據使用者輸入回復訊息
 @line_handler.add(MessageEvent, message=TextMessageContent)
+def get_display_name(event):
+    try:
+        if event.source.type == "group":
+            group_id = event.source.group_id
+            user_id = event.source.user_id
+            with ApiClient(configuration) as api_client:
+                line_api = MessagingApi(api_client)
+                profile = line_api.get_group_member_profile(group_id, user_id)
+                return profile.display_name
+        elif event.source.type == "user":
+            user_id = event.source.user_id
+            with ApiClient(configuration) as api_client:
+                line_api = MessagingApi(api_client)
+                profile = line_api.get_profile(user_id)
+                return profile.display_name
+        else:
+            return "未知使用者"
+    except Exception as e:
+        print("⚠️ 取得使用者名稱失敗：", e)
+        return "未知使用者"
+
 def handle_message(event):
     user_text = event.message.text.strip()
 
@@ -143,7 +164,7 @@ def handle_message(event):
 
     elif user_text.startswith("/join"):
         group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
-    
+
         if group_id not in group_orders or not group_orders[group_id]["restaurant"]:
             reply_text = "⚠️ 請先用 /order 選餐廳"
         else:
@@ -152,14 +173,17 @@ def handle_message(event):
                 item = parts[1]
                 qty = int(parts[2])
                 user_id = event.source.user_id
+                user_name = get_display_name(event)
                 group_orders[group_id]["orders"].append({
-                    "user": user_id,
+                    "user_id": user_id,
+                    "user_name": user_name,
                     "item": item,
                     "qty": qty
                 })
-                reply_text = f"✅ 已加入：{item} x{qty}"
+                reply_text = f"✅ 已加入：{user_name} 點了 {item} x{qty}"
             except:
                 reply_text = "請輸入正確格式，例如：/join 雞腿飯 1"
+
 
     elif user_text == "/list":
         group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
@@ -168,7 +192,8 @@ def handle_message(event):
         else:
             reply_text = f"📦 訂單明細（{group_orders[group_id]['restaurant']}）：\n"
             for o in group_orders[group_id]["orders"]:
-                reply_text += f"- {o['user']}：{o['item']} x{o['qty']}\n"
+                reply_text += f"- 👤 {o['user_name']}：{o['item']} x{o['qty']}\n"
+
 
     elif user_text == "/done":
         group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
@@ -200,6 +225,8 @@ def handle_message(event):
     except Exception as e:
         print("❌ 回覆訊息錯誤：", e)
         traceback.print_exc()
+
+
 
 
 if __name__ == "__main__":
