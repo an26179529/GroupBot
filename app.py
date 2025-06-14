@@ -155,7 +155,8 @@ def handle_message(event):
             reply_text = "⚠️ 請先用 /order 開啟團購流程"
         else:
             group_orders[group_id]["restaurant"] = selected_name
-            reply_text = f"✅ 餐廳「{selected_name}」選擇完成！大家可以用 `/join 餐點 數量` 來加入訂單"
+            menu_text = get_menu_by_name(selected_name)  # 👈 使用你已有的查菜單函式
+            reply_text = f"✅ 餐廳「{selected_name}」選擇完成！\n\n{menu_text}\n\n大家可以用 `/join 餐點 數量` 來加入訂單"
 
     # /join 餐點 數量
     elif from_user_text.startswith("/join"):
