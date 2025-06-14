@@ -135,6 +135,7 @@ def get_display_name(event):
         print("⚠️ 取得使用者名稱失敗：", e)
         return "未知使用者"
 
+@line_handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     user_text = event.message.text.strip()
 
