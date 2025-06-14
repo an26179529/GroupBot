@@ -115,80 +115,107 @@ def callback():
 # 根據使用者輸入回復訊息
 @line_handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    user_text = event.message.text.strip()
-
+    from_user_text = event.message.text.strip()
+    group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+    user_id = event.source.user_id
     reply_text = ""
     quick_reply = None
 
-    # 1. 使用者輸入 /order → 顯示餐廳選單
-    if user_text == "/order":
-        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+    def get_display_name(event):
+        try:
+            if event.source.type == "group":
+                with ApiClient(configuration) as api_client:
+                    line_api = MessagingApi(api_client)
+                    profile = line_api.get_group_member_profile(event.source.group_id, event.source.user_id)
+                    return profile.display_name
+            elif event.source.type == "user":
+                with ApiClient(configuration) as api_client:
+                    line_api = MessagingApi(api_client)
+                    profile = line_api.get_profile(event.source.user_id)
+                    return profile.display_name
+            else:
+                return "未知使用者"
+        except Exception as e:
+            print("⚠️ 無法取得使用者名稱：", e)
+            return "未知使用者"
+
+    # /order 發起訂單
+    if from_user_text == "/order":
         if group_id in group_orders:
-            reply_text = "⚠️ 已經有一筆訂單進行中，可以用 /done 結單或 /list 查詢"
+            reply_text = "⚠️ 已有訂單進行中，請先 /done 結單或 /list 查詢"
         else:
             quick_reply = get_restaurant_quickreply()
-            reply_text = "請選擇一間餐廳："
+            reply_text = "請選擇要訂購的餐廳："
             group_orders[group_id] = {"restaurant": None, "orders": []}
 
-    # 2. 使用者選擇餐廳（QuickReply 回傳訊息格式為：[選擇餐廳] 餐廳名稱）
-    elif user_text.startswith("[選擇餐廳]"):
-        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
-        selected_name = user_text.replace("[選擇餐廳]", "").strip()
-
+    # 選擇餐廳
+    elif from_user_text.startswith("[選擇餐廳]"):
+        selected_name = from_user_text.replace("[選擇餐廳]", "").strip()
         if group_id not in group_orders:
-            reply_text = "⚠️ 請先輸入 /order 發起訂單"
+            reply_text = "⚠️ 請先用 /order 開啟團購流程"
         else:
             group_orders[group_id]["restaurant"] = selected_name
-            reply_text = f"✅ 餐廳「{selected_name}」選擇完成！大家可以用 `/join 餐點 數量` 加入訂單囉！"
+            reply_text = f"✅ 餐廳「{selected_name}」選擇完成！大家可以用 `/join 餐點 數量` 來加入訂單"
 
-    elif user_text.startswith("/join"):
-        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
-    
+    # /join 餐點 數量
+    elif from_user_text.startswith("/join"):
         if group_id not in group_orders or not group_orders[group_id]["restaurant"]:
-            reply_text = "⚠️ 請先用 /order 選餐廳"
+            reply_text = "⚠️ 請先用 /order 並選擇餐廳"
         else:
             try:
-                parts = user_text.split()
+                parts = from_user_text.split()
                 item = parts[1]
                 qty = int(parts[2])
-                user_id = event.source.user_id
+                user_name = get_display_name(event)
                 group_orders[group_id]["orders"].append({
-                    "user": user_id,
+                    "user_id": user_id,
+                    "user_name": user_name,
                     "item": item,
                     "qty": qty
                 })
-                reply_text = f"✅ 已加入：{item} x{qty}"
+                reply_text = f"✅ 已加入：{user_name} 點了 {item} x{qty}"
             except:
-                reply_text = "請輸入正確格式，例如：/join 雞腿飯 1"
+                reply_text = "⚠️ 請輸入格式正確，例如：/join 雞腿飯 1"
 
-    elif user_text == "/list":
-        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+    # /list 查看目前訂單
+    elif from_user_text == "/list":
         if group_id not in group_orders or not group_orders[group_id]["orders"]:
             reply_text = "目前沒有訂單資料"
         else:
             reply_text = f"📦 訂單明細（{group_orders[group_id]['restaurant']}）：\n"
             for o in group_orders[group_id]["orders"]:
-                reply_text += f"- {o['user']}：{o['item']} x{o['qty']}\n"
+                reply_text += f"- 👤 {o['user_name']}：{o['item']} x{o['qty']}\n"
 
-    elif user_text == "/done":
-        group_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+    # /done 結單
+    elif from_user_text == "/done":
         if group_id not in group_orders:
-            reply_text = "目前沒有進行中的訂單"
+            reply_text = "⚠️ 目前沒有進行中的訂單"
         else:
             orders = group_orders[group_id]["orders"]
             if not orders:
-                reply_text = "還沒有人點餐喔！"
+                reply_text = "⚠️ 尚未有人點餐"
             else:
                 summary = {}
                 for o in orders:
-                    key = o["item"]
-                    summary[key] = summary.get(key, 0) + o["qty"]
-
+                    summary[o["item"]] = summary.get(o["item"], 0) + o["qty"]
                 reply_text = f"✅ 訂單結束！{group_orders[group_id]['restaurant']} 統計如下：\n"
                 for item, qty in summary.items():
                     reply_text += f"- {item}: {qty} 份\n"
             del group_orders[group_id]
 
+    # /restaurants 查餐廳
+    elif from_user_text in ["/restaurants", "查餐廳"]:
+        reply_text = get_restaurant_list()
+
+    # /recommend（可日後擴充）
+    elif from_user_text == "/recommend":
+        reply_text = "🧠 推薦功能建構中，敬請期待！"
+
+    # 預設回覆
+    else:
+        reply_text = f"你說的是：{from_user_text}"
+
+    # 傳送訊息
     try:
         with ApiClient(configuration) as api_client:
             MessagingApi(api_client).reply_message(
@@ -200,6 +227,7 @@ def handle_message(event):
     except Exception as e:
         print("❌ 回覆訊息錯誤：", e)
         traceback.print_exc()
+
 
 
 if __name__ == "__main__":
