@@ -77,6 +77,29 @@ def get_display_name(event):
         print("⚠️ 無法取得使用者名稱：", e)
         return "未知使用者"
 
+def recommend_menu_items(user_id, top_n=3):
+    conn = sqlite3.connect("group_order.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT item, COUNT(*) as freq
+        FROM OrderRecord
+        WHERE user_id = ?
+        GROUP BY item
+        ORDER BY freq DESC
+        LIMIT ?
+    """, (user_id, top_n))
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return "🤖 你還沒有點過餐喔～可以先輸入 /order 開始一筆團購！"
+
+    text = "🍽 根據你的歷史訂單，推薦你：\n"
+    for item, freq in rows:
+        text += f"- {item}（共點過 {freq} 次）\n"
+    return text.strip()
+
+
 # ======== 路由區 ========
 @app.route("/", methods=["GET"])
 def index():
@@ -181,7 +204,8 @@ def handle_message(event):
         reply_text = get_restaurant_list()
 
     elif text == "/recommend":
-        reply_text = "🧠 推薦功能建構中，敬請期待！"
+        reply_text = recommend_menu_items(user_id)
+
 
     else:
         reply_text = f"你說的是：{text}"
