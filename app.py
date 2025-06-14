@@ -137,6 +137,17 @@ def handle_message(event):
                     "item": item,
                     "qty": qty
                 })
+
+                # ✅ 將資料寫入資料庫
+                conn = sqlite3.connect("group_order.db")
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO OrderRecord (user_id, restaurant_id, item, quantity, created_at)
+                    VALUES (?, (SELECT id FROM Restaurant WHERE name = ?), ?, ?, datetime('now'))
+                """, (user_id, group_orders[group_id]["restaurant"], item, qty))
+                conn.commit()
+                conn.close()
+
                 reply_text = f"✅ 已加入：{user_name} 點了 {item} x{qty}"
             except Exception as e:
                 reply_text = "⚠️ 請輸入格式正確，例如：/join 雞腿飯 1"
