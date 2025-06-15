@@ -118,6 +118,35 @@ def recommend_menu_items(user_id, top_n=3):
             text += f"- {item}（共被點過 {freq} 次）\n"
         return text.strip()
 
+def recommend_group_items(group_id, top_n=3):
+    conn = sqlite3.connect("group_order.db")
+    cursor = conn.cursor()
+
+    # 取得該群組所有成員的 user_id
+    # 這裡我們先用訂單中 user_id 出現過的代表是此群組成員（簡化版本）
+    cursor.execute("""
+        SELECT item, COUNT(*) as freq
+        FROM OrderRecord
+        WHERE user_id IN (
+            SELECT DISTINCT user_id
+            FROM OrderRecord
+            WHERE created_at >= datetime('now', '-30 days')  -- 限定近期30天
+        )
+        GROUP BY item
+        ORDER BY freq DESC
+        LIMIT ?
+    """, (top_n,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return "📭 這個群組最近還沒有人點過餐喔！快用 /order 開團試試吧～"
+
+    text = "👥 群組熱門推薦：\n"
+    for item, freq in rows:
+        text += f"- {item}（共被點過 {freq} 次）\n"
+    return text.strip()
+
 
 
 # ======== 路由區 ========
@@ -224,8 +253,10 @@ def handle_message(event):
         reply_text = get_restaurant_list()
 
     elif text == "/recommend":
-        reply_text = recommend_menu_items(user_id)
-
+        if event.source.type == "group":
+            reply_text = recommend_group_items(group_id)
+        else:
+            reply_text = recommend_menu_items(user_id)
 
     else:
         reply_text = f"你說的是：{text}"
