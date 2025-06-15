@@ -80,6 +80,8 @@ def get_display_name(event):
 def recommend_menu_items(user_id, top_n=3):
     conn = sqlite3.connect("group_order.db")
     cursor = conn.cursor()
+
+    # 先查使用者自己的歷史紀錄
     cursor.execute("""
         SELECT item, COUNT(*) as freq
         FROM OrderRecord
@@ -89,15 +91,33 @@ def recommend_menu_items(user_id, top_n=3):
         LIMIT ?
     """, (user_id, top_n))
     rows = cursor.fetchall()
-    conn.close()
 
-    if not rows:
-        return "🤖 你還沒有點過餐喔～可以先輸入 /order 開始一筆團購！"
+    if rows:
+        conn.close()
+        text = "🍽 根據你的歷史訂單，推薦你：\n"
+        for item, freq in rows:
+            text += f"- {item}（共點過 {freq} 次）\n"
+        return text.strip()
+    else:
+        # 如果沒有個人紀錄 → 查所有人熱門排行
+        cursor.execute("""
+            SELECT item, COUNT(*) as freq
+            FROM OrderRecord
+            GROUP BY item
+            ORDER BY freq DESC
+            LIMIT ?
+        """, (top_n,))
+        rows = cursor.fetchall()
+        conn.close()
 
-    text = "🍽 根據你的歷史訂單，推薦你：\n"
-    for item, freq in rows:
-        text += f"- {item}（共點過 {freq} 次）\n"
-    return text.strip()
+        if not rows:
+            return "📭 資料庫目前沒有任何訂單紀錄，可以先用 /join 嘗試點個餐！"
+
+        text = "🔥 根據大家的點餐紀錄，推薦你：\n"
+        for item, freq in rows:
+            text += f"- {item}（共被點過 {freq} 次）\n"
+        return text.strip()
+
 
 
 # ======== 路由區 ========
